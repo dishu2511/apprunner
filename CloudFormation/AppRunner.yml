@@ -1,0 +1,135 @@
+Description: This template creates AppRunner Service, VPC Connector, IAM role and Security group.
+
+# describing parameters
+Parameters:
+  ENV:
+    Description: An environment name that will be prefixed to resource names e.g. uat or prd
+    Type: String
+    AllowedValues:
+      - Prod
+      - Uat
+      - Test
+      - Staging
+      - Dev
+
+  VpcID:
+    Description: ID of the VPC under which APPRunner will be deployed
+    Type: String
+    Default: ""
+
+  SubnetIds:
+    Description: Public Subnet IDs
+    Type: CommaDelimitedList
+    Default: ""
+
+  SupportEmail:
+    Description: Email address of the support team
+    Type: String
+    Default: abc@xyz.com
+
+  AppName:
+    Description: Name of the AppRunner instance
+    Type: String
+    Default: "demo"
+
+  AppPort:
+    Description: Listening port on the application
+    Type: String
+    Default: "80"
+
+  Image:
+    Description: ECR Image URI
+    Type: String
+    Default: ""
+
+Resources:
+  AppRunnerAccessRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${AppName}-apprunner-access-role"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSAppRunnerServicePolicyForECRAccess
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - build.apprunner.amazonaws.com
+                - tasks.apprunner.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Tags:
+        - Key: Name
+          Value: !Sub "${AppName}-apprunner-access-role"
+        - Key: SupportEmail
+          Value: !Ref SupportEmail
+        - Key: ENV
+          Value: !Ref ENV
+
+  AppRunnerSecurityGroup:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      GroupDescription: !Sub "${AppName}-apprunner-securitygroup"
+      GroupName: !Sub "${AppName}-apprunner-securitygroup"
+      VpcId: !Ref VpcID
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: "80"
+          ToPort: "80"
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: "443"
+          ToPort: "443"
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub "${AppName}-apprunner-securitygroup"
+        - Key: SupportEmail
+          Value: !Ref SupportEmail
+        - Key: ENV
+          Value: !Ref ENV
+
+  AppRunnerVPCConnector:
+    Type: AWS::AppRunner::VpcConnector
+    Properties:
+      VpcConnectorName: !Sub "${AppName}-apprunner-vpc-connector"
+      Subnets:
+        - !Select [0, !Ref SubnetIds]
+        - !Select [1, !Ref SubnetIds]
+        - !Select [2, !Ref SubnetIds]
+      SecurityGroups:
+        - !Ref AppRunnerSecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Sub "${AppName}-apprunner-vpc-connector"
+        - Key: SupportEmail
+          Value: !Ref SupportEmail
+        - Key: ENV
+          Value: !Ref ENV
+
+  AppRunnerService:
+    Type: AWS::AppRunner::Service
+    DependsOn: AppRunnerAccessRole
+    Properties:
+      ServiceName: !Sub "${AppName}-apprunner"
+      NetworkConfiguration:
+        EgressConfiguration:
+          EgressType: VPC
+          VpcConnectorArn: !Ref AppRunnerVPCConnector
+      SourceConfiguration:
+        AuthenticationConfiguration:
+          AccessRoleArn: !GetAtt AppRunnerAccessRole.Arn
+        AutoDeploymentsEnabled: true
+        ImageRepository:
+          ImageIdentifier: !Ref Image
+          ImageRepositoryType: ECR
+          ImageConfiguration:
+            Port: !Ref AppPort
+      Tags:
+        - Key: Name
+          Value: !Sub "${AppName}-apprunner"
+        - Key: SupportEmail
+          Value: !Ref SupportEmail
+        - Key: ENV
+          Value: !Ref ENV
